@@ -3,7 +3,6 @@ import { useState } from "react";
 import QRCode from "react-qr-code";
 
 export default function Home() {
-  // Added pricingMode, rate, and frames to each table
   const [tables, setTables] = useState([
     { id: 1, name: "Table 1", status: "Free", startTime: null, pricingMode: "minute", rate: 5, frames: 0 },
     { id: 2, name: "Table 2", status: "Free", startTime: null, pricingMode: "minute", rate: 5, frames: 0 },
@@ -11,9 +10,13 @@ export default function Home() {
   ]);
 
   const [currentBill, setCurrentBill] = useState(null);
+  const [pinInput, setPinInput] = useState("");
+  const [discountInput, setDiscountInput] = useState("");
+  const [discountError, setDiscountError] = useState("");
   
   const clubUpiId = "qatester@ybl"; 
   const clubName = "Snooker Desk Pilot";
+  const OWNER_PIN = "1234"; // Hardcoded for MVP
 
   const startTable = (id) => {
     setTables(tables.map(table => 
@@ -35,16 +38,16 @@ export default function Home() {
     const table = tables.find(t => t.id === id);
     if (table.status === "Free") return;
 
-    let cost = 0;
+    let originalCost = 0;
     let timePlayed = 0;
 
     if (table.pricingMode === "minute") {
       const endTime = Date.now();
       const diffInMilliseconds = endTime - table.startTime;
       timePlayed = Math.ceil(diffInMilliseconds / 60000); 
-      cost = timePlayed * table.rate;
+      originalCost = timePlayed * table.rate;
     } else if (table.pricingMode === "frame") {
-      cost = table.frames * table.rate;
+      originalCost = table.frames * table.rate;
     }
 
     setCurrentBill({
@@ -53,12 +56,45 @@ export default function Home() {
       pricingMode: table.pricingMode,
       minutes: timePlayed,
       frames: table.frames,
-      cost: cost
+      originalCost: originalCost,
+      discountAmount: 0,
+      finalCost: originalCost,
+      isPinApproved: false,
+      showPinPrompt: false
     });
+    
+    setPinInput("");
+    setDiscountInput("");
+    setDiscountError("");
+  };
+
+  const handlePinSubmit = () => {
+    if (pinInput === OWNER_PIN) {
+      setCurrentBill({ ...currentBill, isPinApproved: true, showPinPrompt: false });
+      setDiscountError("");
+    } else {
+      setDiscountError("Incorrect PIN");
+    }
+    setPinInput("");
+  };
+
+  const applyDiscount = () => {
+    const discount = parseInt(discountInput) || 0;
+    if (discount < 0 || discount > currentBill.originalCost) {
+      setDiscountError("Invalid discount amount");
+      return;
+    }
+    
+    setCurrentBill({
+      ...currentBill,
+      discountAmount: discount,
+      finalCost: currentBill.originalCost - discount
+    });
+    setDiscountError("");
   };
 
   const processPayment = (method) => {
-    console.log(`Payment of ₹${currentBill.cost} received via ${method}`);
+    console.log(`Payment of ₹${currentBill.finalCost} received via ${method}`);
     
     setTables(tables.map(t => 
       t.id === currentBill.tableId 
@@ -70,7 +106,7 @@ export default function Home() {
 
   const getUpiString = () => {
     if (!currentBill) return "";
-    return `upi://pay?pa=${clubUpiId}&pn=${encodeURIComponent(clubName)}&am=${currentBill.cost}&cu=INR`;
+    return `upi://pay?pa=${clubUpiId}&pn=${encodeURIComponent(clubName)}&am=${currentBill.finalCost}&cu=INR`;
   };
 
   return (
@@ -97,7 +133,6 @@ export default function Home() {
               </span>
             </p>
             
-            {/* Show frame counter only for frame-based tables that are in use */}
             {table.pricingMode === 'frame' && table.status === 'In Use' && (
               <div className="mb-4 p-3 bg-blue-50 border border-blue-100 rounded flex items-center justify-between">
                 <span className="font-medium text-blue-900">Frames Played: {table.frames}</span>
@@ -132,7 +167,7 @@ export default function Home() {
 
       {currentBill && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-8 rounded-lg shadow-lg w-[400px] text-center">
+          <div className="bg-white p-8 rounded-lg shadow-lg w-[450px] text-center max-h-screen overflow-y-auto">
             <h2 className="text-2xl font-bold mb-4">Checkout: {currentBill.tableName}</h2>
             
             {currentBill.pricingMode === 'minute' ? (
@@ -141,9 +176,62 @@ export default function Home() {
               <p className="text-lg mb-1">Frames Played: <strong>{currentBill.frames}</strong></p>
             )}
             
-            <p className="text-xl mb-6">Total Amount: <strong>₹{currentBill.cost}</strong></p>
+            <div className="bg-gray-100 p-4 rounded mt-4 mb-4 text-left">
+              <p className="flex justify-between">Subtotal: <span>₹{currentBill.originalCost}</span></p>
+              {currentBill.discountAmount > 0 && (
+                <p className="flex justify-between text-green-600">Discount: <span>-₹{currentBill.discountAmount}</span></p>
+              )}
+              <div className="border-t border-gray-300 my-2"></div>
+              <p className="flex justify-between text-xl font-bold">Total: <span>₹{currentBill.finalCost}</span></p>
+            </div>
+
+            {/* Discount Section */}
+            {!currentBill.isPinApproved && !currentBill.showPinPrompt && (
+              <button 
+                onClick={() => setCurrentBill({ ...currentBill, showPinPrompt: true })}
+                className="text-blue-600 text-sm underline mb-4 block w-full text-right"
+              >
+                Owner Override: Apply Discount
+              </button>
+            )}
+
+            {currentBill.showPinPrompt && !currentBill.isPinApproved && (
+              <div className="mb-4 bg-red-50 p-3 rounded border border-red-100">
+                <p className="text-sm font-bold text-red-800 mb-2">Enter Owner PIN</p>
+                <div className="flex gap-2 justify-center">
+                  <input 
+                    type="password" 
+                    value={pinInput}
+                    onChange={(e) => setPinInput(e.target.value)}
+                    className="border p-2 rounded w-24 text-center"
+                    placeholder="****"
+                    maxLength={4}
+                  />
+                  <button onClick={handlePinSubmit} className="bg-red-600 text-white px-3 py-2 rounded font-bold">Unlock</button>
+                </div>
+                {discountError && <p className="text-red-500 text-xs mt-2">{discountError}</p>}
+              </div>
+            )}
+
+            {currentBill.isPinApproved && (
+              <div className="mb-4 bg-green-50 p-3 rounded border border-green-100">
+                <p className="text-sm font-bold text-green-800 mb-2">Apply Flat Discount (₹)</p>
+                <div className="flex gap-2 justify-center">
+                  <input 
+                    type="number" 
+                    value={discountInput}
+                    onChange={(e) => setDiscountInput(e.target.value)}
+                    className="border p-2 rounded w-24 text-center"
+                    placeholder="0"
+                  />
+                  <button onClick={applyDiscount} className="bg-green-600 text-white px-3 py-2 rounded font-bold">Apply</button>
+                </div>
+                {discountError && <p className="text-red-500 text-xs mt-2">{discountError}</p>}
+              </div>
+            )}
             
-            {currentBill.cost > 0 && (
+            {/* Payment Section */}
+            {currentBill.finalCost > 0 && (
               <div className="flex flex-col items-center justify-center mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
                 <p className="text-sm text-gray-600 mb-3">Scan to Pay via any UPI App</p>
                 <div className="bg-white p-2 rounded">
