@@ -1,14 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import QRCode from "react-qr-code";
 
 export default function Home() {
-  const [tables, setTables] = useState([
-    { id: 1, name: "Table 1", status: "Free", startTime: null, pricingMode: "minute", rate: 5, frames: 0 },
-    { id: 2, name: "Table 2", status: "Free", startTime: null, pricingMode: "minute", rate: 5, frames: 0 },
-    { id: 3, name: "VIP Table", status: "Free", startTime: null, pricingMode: "frame", rate: 150, frames: 0 },
-  ]);
-
+  const [tables, setTables] = useState([]);
+  const [isLoaded, setIsLoaded] = useState(false);
+  
   const [currentBill, setCurrentBill] = useState(null);
   const [pinInput, setPinInput] = useState("");
   const [discountInput, setDiscountInput] = useState("");
@@ -16,7 +13,30 @@ export default function Home() {
   
   const clubUpiId = "qatester@ybl"; 
   const clubName = "Snooker Desk Pilot";
-  const OWNER_PIN = "1234"; // Hardcoded for MVP
+  const OWNER_PIN = "1234";
+
+  // 1. Load tables from browser memory when the app opens
+  useEffect(() => {
+    const savedTables = localStorage.getItem("snookerTables");
+    if (savedTables) {
+      setTables(JSON.parse(savedTables));
+    } else {
+      // If no memory exists, load the default tables
+      setTables([
+        { id: 1, name: "Table 1", status: "Free", startTime: null, pricingMode: "minute", rate: 5, frames: 0 },
+        { id: 2, name: "Table 2", status: "Free", startTime: null, pricingMode: "minute", rate: 5, frames: 0 },
+        { id: 3, name: "VIP Table", status: "Free", startTime: null, pricingMode: "frame", rate: 150, frames: 0 },
+      ]);
+    }
+    setIsLoaded(true);
+  }, []);
+
+  // 2. Save tables to browser memory every time a change happens
+  useEffect(() => {
+    if (isLoaded) {
+      localStorage.setItem("snookerTables", JSON.stringify(tables));
+    }
+  }, [tables, isLoaded]);
 
   const startTable = (id) => {
     setTables(tables.map(table => 
@@ -109,6 +129,9 @@ export default function Home() {
     return `upi://pay?pa=${clubUpiId}&pn=${encodeURIComponent(clubName)}&am=${currentBill.finalCost}&cu=INR`;
   };
 
+  // Prevent UI flashing before memory is loaded
+  if (!isLoaded) return null;
+
   return (
     <main className="p-8 font-sans">
       <h1 className="text-3xl font-bold mb-8">Snooker Desk MVP</h1>
@@ -185,7 +208,6 @@ export default function Home() {
               <p className="flex justify-between text-xl font-bold">Total: <span>₹{currentBill.finalCost}</span></p>
             </div>
 
-            {/* Discount Section */}
             {!currentBill.isPinApproved && !currentBill.showPinPrompt && (
               <button 
                 onClick={() => setCurrentBill({ ...currentBill, showPinPrompt: true })}
@@ -230,7 +252,6 @@ export default function Home() {
               </div>
             )}
             
-            {/* Payment Section */}
             {currentBill.finalCost > 0 && (
               <div className="flex flex-col items-center justify-center mb-6 p-4 border border-gray-200 rounded-lg bg-gray-50">
                 <p className="text-sm text-gray-600 mb-3">Scan to Pay via any UPI App</p>
